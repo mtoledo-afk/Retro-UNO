@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Retro UNO — Sprint Edition</title>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --blue:#2563EB;--blue-l:#DBEAFE;--blue-d:#1E3A8A;
+  --red:#DC2626;--red-l:#FEE2E2;--red-d:#7F1D1D;
+  --green:#16A34A;--green-l:#DCFCE7;--green-d:#14532D;
+  --yellow:#D97706;--yellow-l:#FEF3C7;--yellow-d:#78350F;
+  --wild:#7C3AED;--wild-l:#EDE9FE;--wild-d:#3B0764;
+  --bg:#0F172A;--surface:#1E293B;--surface2:#334155;
+  --text:#F8FAFC;--muted:#94A3B8;--border:#475569;
+  --fd:'Bebas Neue',sans-serif;--fb:'Nunito',sans-serif;
+  --r:14px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;}
+.stars{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;}
+.star{position:absolute;border-radius:50%;background:#fff;animation:twinkle 3s infinite alternate;}
+@keyframes twinkle{from{opacity:.1}to{opacity:.55}}
+.app{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:1.5rem 1rem 4rem;}
+
+/* ── HEADER ─────────────────────────────── */
+header{text-align:center;margin-bottom:1.5rem;}
+.logo{font-family:var(--fd);font-size:clamp(2.8rem,8vw,5rem);letter-spacing:4px;line-height:1;
+  background:linear-gradient(135deg,#EF4444,#F59E0B 30%,#10B981 60%,#3B82F6 80%,#8B5CF6);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.subtitle{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+
+/* ── TABS ───────────────────────────────── */
+.tabs{display:flex;gap:4px;background:var(--surface);border-radius:var(--r);padding:5px;margin-bottom:1.5rem;width:fit-content;}
+.tab{font-family:var(--fd);letter-spacing:1.5px;font-size:1rem;padding:8px 20px;border-radius:10px;border:none;
+  background:transparent;color:var(--muted);cursor:pointer;transition:all .2s;}
+.tab.active{background:var(--surface2);color:var(--text);}
+.tab-content{display:none;animation:fadeIn .25s ease;}
+.tab-content.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ── INSTRUCCIONES ──────────────────────── */
+.instructions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:1.5rem;}
+.instr-card{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);padding:1.25rem;}
+.instr-num{font-family:var(--fd);font-size:2.5rem;line-height:1;margin-bottom:6px;}
+.instr-title{font-size:14px;font-weight:800;margin-bottom:6px;}
+.instr-desc{font-size:13px;color:var(--muted);line-height:1.6;}
+.legend-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin-bottom:1.5rem;}
+.legend-card{border-radius:10px;padding:10px 12px;border:1.5px solid transparent;}
+.legend-card b{display:block;font-size:12px;font-weight:800;letter-spacing:.5px;margin-bottom:3px;}
+.legend-card span{font-size:12px;line-height:1.5;}
+.wild-legend{
+  background:linear-gradient(135deg,var(--blue-l),var(--red-l),var(--green-l),var(--yellow-l),var(--wild-l));
+  border-color:#a855f7;}
+.instr-tip{background:var(--surface);border-left:3px solid var(--wild);border-radius:0 var(--r) var(--r) 0;
+  padding:12px 16px;font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:1rem;}
+.instr-tip strong{color:var(--text);}
+
+/* ── JOIN ───────────────────────────────── */
+.join-box{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);padding:1.5rem;
+  max-width:420px;margin:0 auto 1.5rem;}
+.join-box h2{font-family:var(--fd);font-size:1.8rem;letter-spacing:2px;margin-bottom:12px;}
+.join-row{display:flex;gap:8px;}
+.inp{flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);font-size:14px;font-family:var(--fb);}
+.inp:focus{outline:none;border-color:var(--wild);}
+.btn{font-family:var(--fd);letter-spacing:1.5px;font-size:1rem;padding:10px 20px;border-radius:10px;
+  border:none;cursor:pointer;transition:transform .1s,filter .1s;}
+.btn:hover{filter:brightness(1.15)}.btn:active{transform:scale(.96)}
+.btn-join{background:var(--wild);color:#fff;}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;}
+.connected{background:#10B981}.disconnected{background:#EF4444}
+.status-bar{font-size:12px;color:var(--muted);margin-bottom:1rem;display:flex;align-items:center;gap:6px;}
+
+/* ── PLAYERS ────────────────────────────── */
+.players-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:8px;margin-bottom:1.5rem;}
+.player-chip{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);
+  padding:10px 8px;text-align:center;position:relative;transition:border-color .2s;}
+.player-chip.active{border-width:2.5px;}
+.player-chip.me{box-shadow:0 0 0 2px var(--wild);}
+.player-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:800;margin:0 auto 5px;}
+.player-name{font-size:11px;font-weight:700;margin-bottom:3px;word-break:break-word;}
+.player-cards{font-size:11px;color:var(--muted);}
+.turn-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);
+  background:#FBBF24;color:#78350F;font-size:9px;font-weight:800;padding:2px 7px;border-radius:99px;white-space:nowrap;}
+.me-badge{position:absolute;top:-10px;right:4px;background:var(--wild);color:#fff;
+  font-size:9px;font-weight:800;padding:2px 7px;border-radius:99px;}
+
+/* ── CONTROLS ───────────────────────────── */
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:1.5rem;}
+.btn-draw{background:var(--red);color:#fff;font-size:1.1rem;padding:12px 24px;}
+.btn-next{background:var(--blue);color:#fff;}
+.btn-skip{background:var(--yellow);color:var(--yellow-d);}
+.btn-reverse{background:var(--green);color:#fff;}
+.btn-reset{background:var(--surface2);color:var(--muted);}
+.btn:disabled{opacity:.35;cursor:not-allowed;filter:none;}
+
+/* ── ACTIVE CARD ────────────────────────── */
+.card-wrap{margin-bottom:1.5rem;min-height:180px;}
+.active-card{border-radius:18px;padding:1.5rem 2rem;border:3px solid;
+  animation:cardIn .35s cubic-bezier(.34,1.56,.64,1);}
+@keyframes cardIn{from{transform:scale(.85) rotateY(-15deg);opacity:0}to{transform:none;opacity:1}}
+.card-badge{font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;opacity:.75;}
+.card-who{font-family:var(--fd);font-size:1.6rem;letter-spacing:2px;margin-bottom:6px;}
+.card-q{font-size:1.05rem;font-weight:600;line-height:1.5;}
+.card-tip{font-size:12px;margin-top:10px;opacity:.65;font-style:italic;}
+.placeholder{display:flex;align-items:center;justify-content:center;height:160px;
+  border:2px dashed var(--border);border-radius:18px;color:var(--muted);font-size:14px;font-weight:600;letter-spacing:.5px;}
+
+/* ── DISCARD ────────────────────────────── */
+.discard-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1.5rem;}
+.mini-card{width:100px;min-height:140px;border-radius:var(--r);padding:8px;
+  display:flex;flex-direction:column;justify-content:space-between;border:2px solid;
+  transition:transform .15s;}
+.mini-card:hover{transform:translateY(-5px) rotate(-2deg);}
+.mc-corner{font-family:var(--fd);font-size:1.8rem;line-height:1;}
+.mc-label{font-size:10px;font-weight:800;letter-spacing:1px;text-align:center;}
+.mc-q{font-size:9px;font-weight:600;line-height:1.4;opacity:.7;}
+
+/* ── LOG ────────────────────────────────── */
+.log-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:12px 16px;font-size:12px;color:var(--muted);max-height:110px;overflow-y:auto;line-height:1.9;}
+.log-entry{display:block;}.log-entry:last-child{color:var(--text);}
+
+/* ── UNO TOAST ──────────────────────────── */
+.uno-toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);
+  background:#FBBF24;color:#78350F;font-family:var(--fd);
+  font-size:clamp(2.5rem,10vw,6rem);letter-spacing:6px;padding:18px 44px;border-radius:18px;
+  z-index:999;pointer-events:none;}
+.uno-toast.show{animation:unoIn 2s ease forwards;}
+@keyframes unoIn{
+  0%{transform:translate(-50%,-50%) scale(0) rotate(-10deg);opacity:1}
+  25%{transform:translate(-50%,-50%) scale(1.05) rotate(2deg)}
+  40%{transform:translate(-50%,-50%) scale(1) rotate(0)}
+  75%{transform:translate(-50%,-50%) scale(1);opacity:1}
+  100%{transform:translate(-50%,-50%) scale(.8);opacity:0}
+}
+
+/* ── SECTION TITLE ──────────────────────── */
+.section-title{font-family:var(--fd);font-size:1.4rem;letter-spacing:2px;color:var(--muted);margin-bottom:.75rem;}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+@media(max-width:600px){
+  .controls{gap:6px}.btn{font-size:.85rem;padding:8px 12px}.btn-draw{font-size:.95rem}
+}
+</style>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+<div class="uno-toast" id="uno-toast">¡UNO RETRO!</div>
+
+<div class="app">
+  <header>
+    <div class="logo">RETRO UNO</div>
+    <div class="subtitle">Sprint Retrospectiva &nbsp;·&nbsp; Multijugador en tiempo real</div>
+  </header>
+
+  <!-- STATUS -->
+  <div class="status-bar">
+    <span class="status-dot disconnected" id="status-dot"></span>
+    <span id="status-txt">Conectando al servidor...</span>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('instrucciones',this)">📖 Instrucciones</button>
+    <button class="tab" onclick="switchTab('juego',this)">🃏 Juego</button>
+  </div>
+
+  <!-- ══ TAB: INSTRUCCIONES ══════════════════════════════════════════ -->
+  <div class="tab-content active" id="tab-instrucciones">
+
+    <div class="instr-tip">
+      <strong>¿Cómo funciona?</strong> El facilitador comparte el link con el equipo. Cada persona entra desde su propio dispositivo — todos ven el mismo tablero en tiempo real. Solo el jugador activo puede robar carta y pasar el turno.
+    </div>
+
+    <div class="section-title">Cómo jugar</div>
+    <div class="instructions">
+      <div class="instr-card">
+        <div class="instr-num" style="color:#7C3AED;">01</div>
+        <div class="instr-title">Únete con tu nombre</div>
+        <div class="instr-desc">Ve a la pestaña <em>Juego</em>, escribe tu nombre y presiona Unirse. Tu nombre aparecerá en el tablero para todos.</div>
+      </div>
+      <div class="instr-card">
+        <div class="instr-num" style="color:#2563EB;">02</div>
+        <div class="instr-title">Espera tu turno</div>
+        <div class="instr-desc">El turno rota automáticamente. Cuando veas ⭐ Turno sobre tu nombre, es tu momento de robar una carta.</div>
+      </div>
+      <div class="instr-card">
+        <div class="instr-num" style="color:#DC2626;">03</div>
+        <div class="instr-title">Roba y responde</div>
+        <div class="instr-desc">Presiona <em>Robar carta</em>. La pregunta aparece para todos. Respóndela en voz en la videollamada — el equipo puede agregar más.</div>
+      </div>
+      <div class="instr-card">
+        <div class="instr-num" style="color:#16A34A;">04</div>
+        <div class="instr-title">Pasa el turno</div>
+        <div class="instr-desc">Cuando termines de responder, presiona <em>Siguiente</em> para pasar el turno al próximo jugador.</div>
+      </div>
+      <div class="instr-card">
+        <div class="instr-num" style="color:#D97706;">05</div>
+        <div class="instr-title">Usa los comodines</div>
+        <div class="instr-desc"><em>Saltar</em> elimina el turno del siguiente jugador. <em>Reversa</em> invierte el orden. Aplícalos cuando la carta Wild lo indique.</div>
+      </div>
+      <div class="instr-card">
+        <div class="instr-num" style="color:#FBBF24;">06</div>
+        <div class="instr-title">¡RETRO UNO!</div>
+        <div class="instr-desc">Cuando a alguien le quede 1 carta, ¡todo el equipo debe gritar <strong>RETRO UNO</strong> en el chat de la videollamada! El primero en llegar a 0 gana.</div>
+      </div>
+    </div>
+
+    <div class="section-title">Las cartas</div>
+    <div class="legend-grid">
+      <div class="legend-card" style="background:var(--blue-l);border-color:var(--blue);">
+        <b style="color:var(--blue-d);">🏆 AZUL — Logro</b>
+        <span style="color:var(--blue-d);">Comparte algo positivo del sprint. Victoria del equipo o personal.</span>
+      </div>
+      <div class="legend-card" style="background:var(--red-l);border-color:var(--red);">
+        <b style="color:var(--red-d);">🚧 ROJO — Reto</b>
+        <span style="color:var(--red-d);">Nombra un problema, blocker o fricción del sprint. El equipo busca solución.</span>
+      </div>
+      <div class="legend-card" style="background:var(--green-l);border-color:var(--green);">
+        <b style="color:var(--green-d);">💡 VERDE — Idea</b>
+        <span style="color:var(--green-d);">Propón un experimento o mejora. El equipo vota en el chat.</span>
+      </div>
+      <div class="legend-card" style="background:var(--yellow-l);border-color:var(--yellow);">
+        <b style="color:var(--yellow-d);">✅ AMARILLO — Acción</b>
+        <span style="color:var(--yellow-d);">Compromiso concreto con dueño y fecha. Va directo al backlog.</span>
+      </div>
+      <div class="legend-card wild-legend">
+        <b style="color:var(--wild-d);">🌈 MORADO — Wild</b>
+        <span style="color:var(--wild-d);">Efectos especiales: Roba 2, Saltar, Reversa, votos relámpago y más caos.</span>
+      </div>
+    </div>
+
+    <div class="instr-tip">
+      <strong>Consejo para el facilitador:</strong> Con 8+ personas, pon un timer de 3 minutos por carta para que el juego fluya. Las cartas Acción (amarillas) escríbelas en un documento compartido — esas son el output real de la retro. Al final, revisen juntos todas las acciones y asignen fechas.
+    </div>
+
+    <div class="instr-tip">
+      <strong>Cartas Wild — referencia rápida:</strong><br>
+      <strong>ROBA 2</strong> — los 2 siguientes jugadores comparten un blocker cada uno.<br>
+      <strong>SALTA</strong> — el jugador activo elige quién responde en su lugar.<br>
+      <strong>REVERSA</strong> — el orden del juego se invierte.<br>
+      <strong>WILD</strong> — todos escriben simultáneamente en el chat.<br>
+      <strong>ROBA 4</strong> — identifiquen 4 mejoras y asignen dueño a cada una.<br>
+      <strong>VOTO RELÁMPAGO</strong> — pulgares arriba/abajo sobre la última sugerencia.
+    </div>
+
+    <button class="btn btn-join" onclick="switchTab('juego', document.querySelectorAll('.tab')[1])" style="margin-top:.5rem;">
+      ¡Entrar al juego! →
+    </button>
+  </div>
+
+  <!-- ══ TAB: JUEGO ══════════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-juego">
+
+    <!-- JOIN -->
+    <div class="join-box" id="join-box">
+      <h2>Únete al juego</h2>
+      <div class="join-row">
+        <input class="inp" id="name-inp" placeholder="Tu nombre..." maxlength="20" onkeydown="if(event.key==='Enter')joinGame()"/>
+        <button class="btn btn-join" onclick="joinGame()">Unirse</button>
+      </div>
+    </div>
+
+    <!-- PLAYERS -->
+    <div class="section-title">Jugadores</div>
+    <div class="players-grid" id="players-grid">
+      <div style="font-size:13px;color:var(--muted);padding:8px 0;">Esperando jugadores...</div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="controls">
+      <button class="btn btn-draw" id="btn-draw" onclick="emit('draw')" disabled>🃏 Robar carta</button>
+      <button class="btn btn-next" id="btn-next" onclick="emit('next')" disabled>➡ Siguiente</button>
+      <button class="btn btn-skip" id="btn-skip" onclick="emit('skip')" disabled>⏭ Saltar</button>
+      <button class="btn btn-reverse" id="btn-reverse" onclick="emit('reverse')" disabled>🔄 Reversa</button>
+      <button class="btn btn-reset" onclick="emit('reset')">↺ Nuevo juego</button>
+    </div>
+
+    <!-- ACTIVE CARD -->
+    <div class="section-title">Carta activa</div>
+    <div class="card-wrap" id="card-wrap">
+      <div class="placeholder">Presiona "Robar carta" para comenzar ✨</div>
+    </div>
+
+    <!-- DISCARD -->
+    <div class="section-title">Últimas cartas</div>
+    <div class="discard-row" id="discard-row">
+      <div style="font-size:13px;color:var(--muted);">Ninguna carta aún</div>
+    </div>
+
+    <!-- LOG -->
+    <div class="section-title">Historial</div>
+    <div class="log-box" id="game-log"></div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG — cambia esta URL por la de tu servidor en Render ──────────
+const SERVER_URL = "https://TU-SERVIDOR.onrender.com";
+// ─────────────────────────────────────────────────────────────────────
+
+const socket = io(SERVER_URL, { transports: ["websocket"] });
+let myId = null;
+let myTurn = false;
+let state = null;
+
+// Generar estrellas
+(function(){
+  const s = document.getElementById("stars");
+  for(let i=0;i<80;i++){
+    const d = document.createElement("div"); d.className = "star";
+    const sz = Math.random()*2+1;
+    d.style.cssText = `width:${sz}px;height:${sz}px;top:${Math.random()*100}%;left:${Math.random()*100}%;animation-delay:${Math.random()*3}s;animation-duration:${2+Math.random()*3}s;`;
+    s.appendChild(d);
+  }
+})();
+
+// ── Socket events ─────────────────────────────────────────────────────
+socket.on("connect", () => {
+  myId = socket.id;
+  setStatus(true);
+});
+socket.on("disconnect", () => setStatus(false));
+socket.on("state", (s) => { state = s; render(s); });
+
+function setStatus(ok) {
+  document.getElementById("status-dot").className = "status-dot " + (ok ? "connected" : "disconnected");
+  document.getElementById("status-txt").textContent = ok ? "Conectado al servidor" : "Desconectado — recargando...";
+  if(!ok) setTimeout(() => location.reload(), 3000);
+}
+
+function emit(event, data) { socket.emit(event, data); }
+
+function joinGame() {
+  const n = document.getElementById("name-inp").value.trim();
+  if(!n) return;
+  emit("join", { name: n });
+  document.getElementById("join-box").style.display = "none";
+}
+
+// ── Render ─────────────────────────────────────────────────────────────
+const THEMES = {
+  blue:  { bg:"var(--blue-l)",  border:"var(--blue)",  text:"var(--blue-d)"  },
+  red:   { bg:"var(--red-l)",   border:"var(--red)",   text:"var(--red-d)"   },
+  green: { bg:"var(--green-l)", border:"var(--green)", text:"var(--green-d)" },
+  yellow:{ bg:"var(--yellow-l)",border:"var(--yellow)",text:"var(--yellow-d)"},
+  wild:  { bg:"var(--wild-l)",  border:"var(--wild)",  text:"var(--wild-d)"  },
+};
+const ICONS = { blue:"🏆", red:"🚧", green:"💡", yellow:"✅", wild:"🌈" };
+
+function render(s) {
+  renderPlayers(s);
+  renderCard(s);
+  renderDiscard(s);
+  renderLog(s);
+  updateButtons(s);
+}
+
+function renderPlayers(s) {
+  const el = document.getElementById("players-grid");
+  if(!s.players.length){ el.innerHTML='<div style="font-size:13px;color:var(--muted);padding:8px 0;">Esperando jugadores...</div>'; return; }
+  el.innerHTML = s.players.map((p,i) => {
+    const isActive = i === s.currentIdx;
+    const isMe = p.id === myId;
+    return `<div class="player-chip${isActive?" active":""}${isMe?" me":""}" style="${isActive?`border-color:${p.color};`:''}">
+      ${isActive?'<div class="turn-badge">⭐ Turno</div>':''}
+      ${isMe?'<div class="me-badge">Tú</div>':''}
+      <div class="player-avatar" style="background:${p.color}22;color:${p.color};border:2px solid ${p.color}33;">
+        ${p.name.charAt(0).toUpperCase()}
+      </div>
+      <div class="player-name" style="${isActive?`color:${p.color};`:''}">${p.name}</div>
+      <div class="player-cards">🃏 ${p.cards}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderCard(s) {
+  const el = document.getElementById("card-wrap");
+  if(!s.activeCard){ el.innerHTML='<div class="placeholder">Presiona "Robar carta" para comenzar ✨</div>'; return; }
+  const c = s.activeCard;
+  const t = THEMES[c.color] || THEMES.wild;
+  el.innerHTML = `<div class="active-card" style="background:${t.bg};border-color:${t.border};color:${t.text};">
+    <div class="card-badge">${ICONS[c.color]} Carta ${c.label}</div>
+    <div class="card-who">${c.playerName}</div>
+    <div class="card-q">${c.question}</div>
+    ${c.tip?`<div class="card-tip">💬 ${c.tip}</div>`:''}
+  </div>`;
+  // UNO shout
+  if(s.players.some(p=>p.cards===1)){
+    const t = document.getElementById("uno-toast");
+    t.classList.remove("show"); void t.offsetWidth; t.classList.add("show");
+  }
+}
+
+function renderDiscard(s) {
+  const el = document.getElementById("discard-row");
+  if(!s.discard.length){ el.innerHTML='<div style="font-size:13px;color:var(--muted);">Ninguna carta aún</div>'; return; }
+  el.innerHTML = s.discard.map(c => {
+    const t = THEMES[c.color]||THEMES.wild;
+    return `<div class="mini-card" style="background:${t.bg};border-color:${t.border};color:${t.text};">
+      <div class="mc-corner">${ICONS[c.color]}</div>
+      <div><div class="mc-label">${c.label}</div><div class="mc-q">${c.question}</div></div>
+    </div>`;
+  }).join("");
+}
+
+function renderLog(s) {
+  const el = document.getElementById("game-log");
+  el.innerHTML = s.logs.map(l=>`<span class="log-entry">${l}</span>`).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+function updateButtons(s) {
+  const p = s.players[s.currentIdx];
+  myTurn = p && p.id === myId;
+  document.getElementById("btn-draw").disabled = !myTurn;
+  document.getElementById("btn-next").disabled = !myTurn;
+  document.getElementById("btn-skip").disabled = !myTurn;
+  document.getElementById("btn-reverse").disabled = !myTurn;
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll(".tab-content").forEach(t=>t.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+  document.getElementById("tab-"+name).classList.add("active");
+  if(btn) btn.classList.add("active");
+}
+</script>
+</body>
+</html>
