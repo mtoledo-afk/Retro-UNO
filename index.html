@@ -279,6 +279,7 @@ header{text-align:center;margin-bottom:1.5rem;}
       <button class="btn btn-skip" id="btn-skip" onclick="emit('skip')" disabled>⏭ Saltar</button>
       <button class="btn btn-reverse" id="btn-reverse" onclick="emit('reverse')" disabled>🔄 Reversa</button>
       <button class="btn btn-reset" onclick="emit('reset')">↺ Nuevo juego</button>
+      <button class="btn" id="btn-report" style="background:#7C3AED;color:#fff;" onclick="downloadReport()">⬇ Reporte PDF</button>
     </div>
 
     <!-- ACTIVE CARD -->
@@ -422,6 +423,192 @@ function updateButtons(s) {
   document.getElementById("btn-next").disabled = !myTurn;
   document.getElementById("btn-skip").disabled = !myTurn;
   document.getElementById("btn-reverse").disabled = !myTurn;
+}
+
+
+// ── Descarga de reporte ───────────────────────────────────────────────
+function downloadReport() {
+  if (!state) return;
+  const s = state;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('es-GT', { hour: '2-digit', minute: '2-digit' });
+
+  const COLORS_LABEL = { blue: '🏆 Logro', red: '🚧 Reto', green: '💡 Idea', yellow: '✅ Acción', wild: '🌈 Wild' };
+  const COLORS_HEX = { blue: '#2563EB', red: '#DC2626', green: '#16A34A', yellow: '#D97706', wild: '#7C3AED' };
+  const COLORS_LIGHT = { blue: '#EFF6FF', red: '#FEF2F2', green: '#F0FDF4', yellow: '#FEFCE8', wild: '#F5F3FF' };
+
+  // Winner detection
+  const winner = s.players.find(p => p.cards === 0);
+  const minCards = Math.min(...(s.players.map(p => p.cards)));
+
+  // Use fullHistory (all cards ever played) if available, else discard
+  const history = (s.fullHistory && s.fullHistory.length > 0) ? s.fullHistory : s.discard;
+  const discardHtml = history.length > 0
+    ? history.map((c, i) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px">${i + 1}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9">
+          <span style="display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${COLORS_LIGHT[c.color]||'#f5f3ff'};color:${COLORS_HEX[c.color]||'#7C3AED'}">
+            ${COLORS_LABEL[c.color] || c.color}
+          </span>
+        </td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#374151">${c.question}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#6B7280">${c.playerName || '—'}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="padding:12px;font-size:12px;color:#9CA3AF;text-align:center">Sin cartas jugadas aún</td></tr>';
+
+  // Players table
+  const playersHtml = s.players.map(p => `
+    <tr>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:10px;height:10px;border-radius:50%;background:${p.color};flex-shrink:0"></div>
+          <span style="font-size:12px;font-weight:500">${p.name}</span>
+        </div>
+      </td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">🃏 ${p.cards}</td>
+      <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;text-align:center">
+        ${p.cards === 0
+          ? '<span style="background:#D1FAE5;color:#065F46;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600">🏆 GANADOR</span>'
+          : p.cards === 1
+            ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600">⚡ UNO!</span>'
+            : '—'}
+      </td>
+    </tr>`).join('');
+
+  // Log entries
+  const logsHtml = s.logs.slice(-20).map(l =>
+    `<div style="font-size:11px;color:#475569;padding:4px 0;border-bottom:1px solid #f8fafc;line-height:1.5">${l}</div>`
+  ).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Reporte — Retro UNO</title>
+<style>
+  @media print {
+    .no-print { display: none !important; }
+    body { padding: 20px; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #F8FAFC; color: #1E293B; padding: 36px; max-width: 820px; margin: 0 auto; }
+  .print-btn { position: fixed; top: 20px; right: 20px; background: #7C3AED; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px #7C3AED44; }
+  .print-btn:hover { background: #6D28D9; }
+  header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 28px; padding-bottom: 20px; border-bottom: 3px solid #7C3AED22; }
+  .logo-block h1 { font-size: 28px; font-weight: 800; color: #7C3AED; letter-spacing: -0.5px; }
+  .logo-block p { font-size: 12px; color: #64748B; margin-top: 4px; }
+  .date-block { text-align: right; font-size: 12px; color: #64748B; line-height: 1.7; }
+  .status-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; margin-bottom: 24px;
+    background: ${winner ? '#D1FAE5' : '#FEF3C7'}; color: ${winner ? '#065F46' : '#92400E'}; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+  .metric { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 16px; text-align: center; }
+  .metric-val { font-size: 30px; font-weight: 800; margin-bottom: 4px; }
+  .metric-lbl { font-size: 11px; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px; }
+  section { margin-bottom: 28px; }
+  section h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #F1F5F9; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; overflow: hidden; }
+  th { background: #F8FAFC; padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
+  .log-box { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 14px; }
+  footer { margin-top: 32px; padding-top: 16px; border-top: 2px solid #F1F5F9; font-size: 11px; color: #94A3B8; text-align: center; }
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">🖨 Imprimir / Guardar PDF</button>
+
+<header>
+  <div class="logo-block">
+    <h1>🃏 Retro UNO</h1>
+    <p>Scrum Retrospective Card Game — Reporte de sesión</p>
+  </div>
+  <div class="date-block">
+    <strong>${dateStr}</strong><br>${timeStr}<br>
+    ${s.players.length} participantes
+  </div>
+</header>
+
+<div class="status-badge">
+  ${winner ? `🏆 GANADOR: ${winner.name}` : minCards <= 2 ? `⚡ Partida en progreso — Mínimo ${minCards} cartas` : '🃏 Sesión registrada'}
+</div>
+
+<div class="metrics">
+  <div class="metric">
+    <div class="metric-val" style="color:#7C3AED">${s.players.length}</div>
+    <div class="metric-lbl">Participantes</div>
+  </div>
+  <div class="metric">
+    <div class="metric-val" style="color:#2563EB">${history.length}</div>
+    <div class="metric-lbl">Cartas jugadas</div>
+  </div>
+  <div class="metric">
+    <div class="metric-val" style="color:#16A34A">${history.filter(c => c.color === 'yellow').length}</div>
+    <div class="metric-lbl">Acciones generadas</div>
+  </div>
+</div>
+
+<section>
+  <h2>👥 Participantes</h2>
+  <table>
+    <tr>
+      <th>Nombre</th>
+      <th style="text-align:center">Cartas restantes</th>
+      <th style="text-align:center">Estado</th>
+    </tr>
+    ${playersHtml}
+  </table>
+</section>
+
+<section>
+  <h2>📋 Cartas jugadas</h2>
+  <table>
+    <tr>
+      <th style="width:40px">#</th>
+      <th style="width:120px">Tipo</th>
+      <th>Pregunta / Evento</th>
+      <th style="width:120px">Jugador</th>
+    </tr>
+    ${discardHtml}
+  </table>
+</section>
+
+<section>
+  <h2>📜 Historial de la sesión</h2>
+  <div class="log-box">${logsHtml}</div>
+</section>
+
+<section>
+  <h2>✅ Acciones comprometidas</h2>
+  <table>
+    <tr>
+      <th>#</th>
+      <th>Acción</th>
+      <th>Responsable</th>
+      <th>Fecha</th>
+    </tr>
+    ${history.filter(c => c.color === 'yellow').map((c, i) => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px">${i + 1}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#374151">${c.question}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#6B7280">${c.playerName || '—'}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#9CA3AF">___________</td>
+      </tr>`).join('') || '<tr><td colspan="4" style="padding:12px;font-size:12px;color:#9CA3AF;text-align:center">Sin acciones registradas aún</td></tr>'}
+  </table>
+  <div style="margin-top:10px;font-size:11px;color:#94A3B8;font-style:italic">
+    💡 Las cartas Acción (amarillas) son el output real de la retro. Asigna fecha y responsable a cada una.
+  </div>
+</section>
+
+<footer>Generado por Retro UNO — Scrum Retrospective Card Game · ${dateStr}</footer>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `reporte-retro-uno-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────

@@ -98,6 +98,7 @@ function freshState() {
     currentIdx: 0,
     direction: 1,
     discard: [],
+    fullHistory: [],
     logs: ["¡Esperando jugadores... comparte el link con tu equipo!"],
     started: false,
     activeCard: null,
@@ -150,6 +151,7 @@ io.on("connection", (socket) => {
     const card = drawRandomCard();
     gameState.activeCard = { ...card, playerName: p.name };
     gameState.discard.push(card);
+    gameState.fullHistory.push({ ...card, playerName: p.name, timestamp: new Date().toISOString() });
     if (gameState.discard.length > 4) gameState.discard.shift();
     p.cards = Math.max(0, p.cards - 1);
     addLog(`${p.name} robó carta ${card.label}.`);
@@ -194,6 +196,7 @@ io.on("connection", (socket) => {
     gameState = freshState();
     gameState.players = old;
     gameState.logs = ["¡Nuevo juego iniciado!"];
+    gameState.fullHistory = [];
     broadcast();
   });
 
