@@ -6,7 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
-// ── Cartas por defecto ────────────────────────────────────────────────
+// ── Default cards ─────────────────────────────────────────────────────
 const DEFAULT_CARDS = [
   { color:"blue", label:"Logro", tip:"El jugador responde primero, el equipo puede agregar.", questions:[
     "¿Qué cosa hizo el equipo de manera brillante este sprint?",
@@ -70,210 +70,299 @@ const DEFAULT_CARDS = [
   ]},
 ];
 
-function freshState() {
+// ── Room management ───────────────────────────────────────────────────
+let activeRoom = null; // only one room at a time
+const ROOM_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+let roomExpireTimer = null;
+
+function generateCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "RETRO-";
+  for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function freshRoom(code, hostId) {
   return {
-    players: [], currentIdx: 0, direction: 1,
-    discard: [], logs: ["¡Esperando jugadores... comparte el link con tu equipo!"],
-    activeCard: null, facilitatorId: null,
+    code,
+    hostId,
+    players: [],
+    currentIdx: 0,
+    direction: 1,
+    discard: [],
+    logs: ["🎮 Sala creada. Comparte el código con tu equipo."],
+    activeCard: null,
     config: { turnSeconds: 90, cardsPerPlayer: 7, sprintName: "Sprint" },
     cards: JSON.parse(JSON.stringify(DEFAULT_CARDS)),
-    timerEndsAt: null, extraTimeUsed: false,
-    skipEffect: null, started: false, locked: false,
-    winner: null, gameOver: false,
-    drawnHistory: [],   // { color, label, question, playerName, timestamp }
-    totalCards: 0, drawnCount: 0,
+    timerEndsAt: null,
+    extraTimeUsed: false,
+    skipEffect: null,
+    started: false,
+    locked: false,
+    gameOver: false,
+    winner: null,
+    drawnHistory: [],
+    totalCards: 0,
+    drawnCount: 0,
+    createdAt: Date.now(),
   };
 }
 
-let gs = freshState();
-let serverTimer = null;
-
-function allQuestions() {
-  return gs.cards.flatMap(d => d.questions.map(q => ({ color:d.color, label:d.label, tip:d.tip||"", question:q })));
+function scheduleRoomExpiry() {
+  if (roomExpireTimer) clearTimeout(roomExpireTimer);
+  roomExpireTimer = setTimeout(() => {
+    if (activeRoom) {
+      io.to(activeRoom.code).emit("roomExpired");
+      activeRoom = null;
+    }
+  }, ROOM_TTL_MS);
 }
 
-function addLog(msg) { gs.logs.push(msg); if(gs.logs.length>60) gs.logs.shift(); }
-function broadcast() { io.emit("state", gs); }
+function addLog(msg) {
+  if (!activeRoom) return;
+  activeRoom.logs.push(msg);
+  if (activeRoom.logs.length > 60) activeRoom.logs.shift();
+}
 
-function clearTimer() { if(serverTimer){ clearInterval(serverTimer); serverTimer=null; } }
+function broadcast() {
+  if (!activeRoom) return;
+  io.to(activeRoom.code).emit("state", activeRoom);
+}
+
+// ── Timer ─────────────────────────────────────────────────────────────
+let serverTimer = null;
+function clearTimer() { if (serverTimer) { clearInterval(serverTimer); serverTimer = null; } }
 
 function startTimer() {
   clearTimer();
-  if(!gs.activeCard) return;
-  gs.timerEndsAt = Date.now() + gs.config.turnSeconds * 1000;
-  gs.extraTimeUsed = false;
+  if (!activeRoom?.activeCard) return;
+  activeRoom.timerEndsAt = Date.now() + activeRoom.config.turnSeconds * 1000;
+  activeRoom.extraTimeUsed = false;
   broadcast();
   serverTimer = setInterval(() => {
-    if(!gs.timerEndsAt){ clearTimer(); return; }
-    if(Date.now() >= gs.timerEndsAt){ clearTimer(); advanceTurn("auto"); }
+    if (!activeRoom?.timerEndsAt) { clearTimer(); return; }
+    if (Date.now() >= activeRoom.timerEndsAt) { clearTimer(); advanceTurn("auto"); }
   }, 500);
 }
 
 function advanceTurn(reason) {
   clearTimer();
-  gs.currentIdx = (gs.currentIdx + gs.direction + gs.players.length) % gs.players.length;
-  gs.activeCard = null; gs.timerEndsAt = null; gs.extraTimeUsed = false; gs.skipEffect = null;
-  const next = gs.players[gs.currentIdx];
-  if(reason==="auto") addLog(`⏱ Tiempo agotado — turno de ${next?.name}.`);
-  else addLog(`Turno de ${next?.name}.`);
+  const r = activeRoom;
+  r.currentIdx = (r.currentIdx + r.direction + r.players.length) % r.players.length;
+  r.activeCard = null; r.timerEndsAt = null; r.extraTimeUsed = false; r.skipEffect = null;
+  const next = r.players[r.currentIdx];
+  addLog(reason === "auto" ? `⏱ Tiempo agotado — turno de ${next?.name}.` : `Turno de ${next?.name}.`);
   broadcast();
 }
 
 function checkGameOver() {
-  // winner = first to reach 0 cards
-  const w = gs.players.find(p => p.cards === 0);
-  if(w){ gs.winner = w.name; gs.gameOver = true; clearTimer(); addLog(`🏆 ¡${w.name} ganó el juego!`); broadcast(); return true; }
-  // deck exhausted
-  if(gs.drawnCount >= gs.totalCards){ gs.gameOver = true; clearTimer(); addLog("🎴 ¡El mazo se agotó! Fin del juego."); broadcast(); return true; }
+  const r = activeRoom;
+  const w = r.players.find(p => p.cards === 0);
+  if (w) { r.winner = w.name; r.gameOver = true; clearTimer(); addLog(`🏆 ¡${w.name} ganó!`); broadcast(); return true; }
+  if (r.drawnCount >= r.totalCards) { r.gameOver = true; clearTimer(); addLog("🎴 ¡Mazo agotado! Fin del juego."); broadcast(); return true; }
   return false;
 }
 
+function allQuestions() {
+  return activeRoom.cards.flatMap(d => d.questions.map(q => ({ color: d.color, label: d.label, tip: d.tip || "", question: q })));
+}
+
+// ── Socket.io ─────────────────────────────────────────────────────────
 io.on("connection", socket => {
-  socket.emit("state", gs);
+  // Send current room status on connect
+  socket.emit("serverStatus", { hasRoom: !!activeRoom, code: activeRoom?.code || null });
 
-  socket.on("join", ({ name }) => {
-    if(gs.locked) return socket.emit("error","La sala está cerrada.");
-    if(gs.players.find(p=>p.id===socket.id)) return;
-    const COLS=["#2563EB","#DC2626","#16A34A","#D97706","#7C3AED","#DB2777","#0891B2","#65A30D","#E85D04","#3B82F6","#10B981","#F59E0B"];
-    const isFacilitator = gs.players.length===0;
-    gs.players.push({ id:socket.id, name, cards: gs.config.cardsPerPlayer, color:COLS[gs.players.length%COLS.length], isFacilitator });
-    if(isFacilitator){ gs.facilitatorId=socket.id; addLog(`${name} se unió como facilitador/a.`); }
-    else addLog(`${name} se unió al juego.`);
+  // ── CREATE ROOM ──
+  socket.on("createRoom", ({ name }) => {
+    if (activeRoom) return socket.emit("error", "Ya existe una sala activa. Solo puede haber una sala a la vez.");
+    const code = generateCode();
+    activeRoom = freshRoom(code, socket.id);
+    const COLS = ["#2563EB","#DC2626","#16A34A","#D97706","#7C3AED","#DB2777","#0891B2","#65A30D"];
+    activeRoom.players.push({ id: socket.id, name, cards: activeRoom.config.cardsPerPlayer, color: COLS[0], isHost: true });
+    socket.join(code);
+    scheduleRoomExpiry();
+    addLog(`${name} creó la sala como host.`);
+    socket.emit("roomCreated", { code });
     broadcast();
   });
 
+  // ── JOIN ROOM ──
+  socket.on("joinRoom", ({ code, name }) => {
+    if (!activeRoom || activeRoom.code !== code.toUpperCase())
+      return socket.emit("error", "Sala no encontrada. Verifica el código.");
+    if (activeRoom.locked)
+      return socket.emit("error", "La sala está cerrada — el juego ya inició.");
+    if (activeRoom.players.find(p => p.id === socket.id)) return;
+    const COLS = ["#2563EB","#DC2626","#16A34A","#D97706","#7C3AED","#DB2777","#0891B2","#65A30D","#E85D04","#3B82F6","#10B981","#F59E0B"];
+    activeRoom.players.push({ id: socket.id, name, cards: activeRoom.config.cardsPerPlayer, color: COLS[activeRoom.players.length % COLS.length], isHost: false });
+    socket.join(activeRoom.code);
+    addLog(`${name} se unió a la sala.`);
+    broadcast();
+  });
+
+  // ── REJOIN (after page refresh) ──
+  socket.on("rejoin", ({ code, name }) => {
+    if (!activeRoom || activeRoom.code !== code) return;
+    const existing = activeRoom.players.find(p => p.name === name);
+    if (existing) { existing.id = socket.id; socket.join(code); socket.emit("state", activeRoom); }
+  });
+
+  // ── CONFIG ──
   socket.on("setConfig", ({ turnSeconds, cardsPerPlayer, sprintName }) => {
-    if(socket.id!==gs.facilitatorId || gs.started) return;
-    if(turnSeconds) gs.config.turnSeconds = Math.max(30,Math.min(300,parseInt(turnSeconds)||90));
-    if(cardsPerPlayer) {
-      gs.config.cardsPerPlayer = Math.max(3,Math.min(15,parseInt(cardsPerPlayer)||7));
-      gs.players.forEach(p => p.cards = gs.config.cardsPerPlayer);
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
+    if (turnSeconds) activeRoom.config.turnSeconds = Math.max(30, Math.min(300, parseInt(turnSeconds) || 90));
+    if (cardsPerPlayer) {
+      activeRoom.config.cardsPerPlayer = Math.max(3, Math.min(15, parseInt(cardsPerPlayer) || 7));
+      activeRoom.players.forEach(p => p.cards = activeRoom.config.cardsPerPlayer);
     }
-    if(sprintName) gs.config.sprintName = sprintName.trim()||"Sprint";
+    if (sprintName) activeRoom.config.sprintName = sprintName.trim() || "Sprint";
     broadcast();
   });
 
-  // ── Card editor ───────────────────────────────────────────────────
+  // ── CARD EDITOR ──
   socket.on("addQuestion", ({ color, question }) => {
-    if(socket.id!==gs.facilitatorId||gs.started) return;
-    const cat = gs.cards.find(c=>c.color===color);
-    if(cat && question?.trim()) { cat.questions.push(question.trim()); broadcast(); }
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
+    const cat = activeRoom.cards.find(c => c.color === color);
+    if (cat && question?.trim()) { cat.questions.push(question.trim()); broadcast(); }
   });
-
   socket.on("editQuestion", ({ color, idx, question }) => {
-    if(socket.id!==gs.facilitatorId||gs.started) return;
-    const cat = gs.cards.find(c=>c.color===color);
-    if(cat && cat.questions[idx]!==undefined && question?.trim()) { cat.questions[idx]=question.trim(); broadcast(); }
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
+    const cat = activeRoom.cards.find(c => c.color === color);
+    if (cat && cat.questions[idx] !== undefined && question?.trim()) { cat.questions[idx] = question.trim(); broadcast(); }
   });
-
   socket.on("deleteQuestion", ({ color, idx }) => {
-    if(socket.id!==gs.facilitatorId||gs.started) return;
-    const cat = gs.cards.find(c=>c.color===color);
-    if(cat && cat.questions.length>1) { cat.questions.splice(idx,1); broadcast(); }
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
+    const cat = activeRoom.cards.find(c => c.color === color);
+    if (cat && cat.questions.length > 1) { cat.questions.splice(idx, 1); broadcast(); }
   });
-
   socket.on("addCategory", ({ color, label, tip }) => {
-    if(socket.id!==gs.facilitatorId||gs.started) return;
-    if(gs.cards.find(c=>c.color===color)) return;
-    gs.cards.push({ color, label:label||"Nueva", tip:tip||"", questions:["Escribe tu primera pregunta aquí."] });
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
+    if (!activeRoom.cards.find(c => c.color === color))
+      activeRoom.cards.push({ color, label: label || "Nueva", tip: tip || "", questions: ["Escribe tu primera pregunta aquí."] });
     broadcast();
   });
-
   socket.on("importCards", ({ cards }) => {
-    if(socket.id!==gs.facilitatorId||gs.started) return;
-    try { if(Array.isArray(cards)) { gs.cards=cards; broadcast(); } } catch(e){}
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
+    if (Array.isArray(cards)) { activeRoom.cards = cards; broadcast(); }
   });
 
-  // ── Game control ──────────────────────────────────────────────────
+  // ── START GAME ──
   socket.on("startGame", () => {
-    if(socket.id!==gs.facilitatorId||gs.started||gs.players.length<2) return;
-    gs.started=true; gs.locked=true;
-    gs.totalCards = gs.players.length * gs.config.cardsPerPlayer;
-    gs.drawnCount=0;
-    gs.players.forEach(p=>p.cards=gs.config.cardsPerPlayer);
-    addLog(`🎮 ¡Juego iniciado! ${gs.players.length} jugadores · ${gs.config.cardsPerPlayer} cartas c/u · ${gs.config.turnSeconds}s por turno.`);
-    addLog(`Turno de ${gs.players[0].name}.`);
+    if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started || activeRoom.players.length < 2) return;
+    activeRoom.started = true;
+    activeRoom.locked = true;
+    activeRoom.totalCards = activeRoom.players.length * activeRoom.config.cardsPerPlayer;
+    activeRoom.players.forEach(p => p.cards = activeRoom.config.cardsPerPlayer);
+    addLog(`🎮 ¡Juego iniciado! ${activeRoom.players.length} jugadores · ${activeRoom.config.cardsPerPlayer} cartas c/u · ${activeRoom.config.turnSeconds}s por turno.`);
+    addLog(`Turno de ${activeRoom.players[0].name}.`);
     broadcast();
   });
 
+  // ── GAMEPLAY ──
   socket.on("draw", () => {
-    if(gs.gameOver) return;
-    const p = gs.players[gs.currentIdx];
-    if(!p||p.id!==socket.id||gs.activeCard) return;
-    const all = allQuestions();
-    const card = all[Math.floor(Math.random()*all.length)];
-    gs.activeCard = { ...card, playerName:p.name };
-    gs.discard.push(card); if(gs.discard.length>4) gs.discard.shift();
-    gs.drawnHistory.push({ ...card, playerName:p.name, timestamp:new Date().toLocaleString("es-GT") });
-    p.cards = Math.max(0, p.cards-1);
-    gs.drawnCount++;
+    if (!activeRoom || activeRoom.gameOver || activeRoom.activeCard) return;
+    const p = activeRoom.players[activeRoom.currentIdx];
+    if (!p || p.id !== socket.id) return;
+    const card = allQuestions()[Math.floor(Math.random() * allQuestions().length)];
+    activeRoom.activeCard = { ...card, playerName: p.name };
+    activeRoom.discard.push(card);
+    if (activeRoom.discard.length > 4) activeRoom.discard.shift();
+    activeRoom.drawnHistory.push({ ...card, playerName: p.name, timestamp: new Date().toLocaleString("es-GT") });
+    p.cards = Math.max(0, p.cards - 1);
+    activeRoom.drawnCount++;
     addLog(`${p.name} robó carta ${card.label}.`);
-    if(p.cards===1) addLog(`⚡ ¡${p.name} tiene UNA carta! ¡Griten RETRO UNO!`);
-    if(!checkGameOver()) startTimer();
+    if (p.cards === 1) addLog(`⚡ ¡${p.name} tiene UNA carta! ¡Griten RETRO UNO!`);
+    if (!checkGameOver()) startTimer();
   });
 
   socket.on("extraTime", () => {
-    const p=gs.players[gs.currentIdx];
-    if(!p||p.id!==socket.id||gs.extraTimeUsed) return;
-    gs.extraTimeUsed=true;
-    gs.timerEndsAt=(gs.timerEndsAt||Date.now())+30000;
+    if (!activeRoom) return;
+    const p = activeRoom.players[activeRoom.currentIdx];
+    if (!p || p.id !== socket.id || activeRoom.extraTimeUsed) return;
+    activeRoom.extraTimeUsed = true;
+    activeRoom.timerEndsAt = (activeRoom.timerEndsAt || Date.now()) + 30000;
     addLog(`⏳ ${p.name} pidió 30 segundos extra.`);
     broadcast();
   });
 
   socket.on("next", () => {
-    const p=gs.players[gs.currentIdx];
-    if(!p||p.id!==socket.id||gs.gameOver) return;
+    if (!activeRoom || activeRoom.gameOver) return;
+    const p = activeRoom.players[activeRoom.currentIdx];
+    if (!p || p.id !== socket.id) return;
     advanceTurn("manual");
   });
 
   socket.on("skip", () => {
-    const p=gs.players[gs.currentIdx];
-    if(!p||p.id!==socket.id||gs.gameOver) return;
+    if (!activeRoom || activeRoom.gameOver) return;
+    const p = activeRoom.players[activeRoom.currentIdx];
+    if (!p || p.id !== socket.id) return;
     clearTimer();
-    const skipIdx=(gs.currentIdx+gs.direction+gs.players.length)%gs.players.length;
-    const skipped=gs.players[skipIdx];
-    gs.skipEffect={ targetId:skipped?.id, targetName:skipped?.name };
-    gs.activeCard=null; gs.timerEndsAt=null;
+    const skipIdx = (activeRoom.currentIdx + activeRoom.direction + activeRoom.players.length) % activeRoom.players.length;
+    const skipped = activeRoom.players[skipIdx];
+    activeRoom.skipEffect = { targetId: skipped?.id, targetName: skipped?.name };
+    activeRoom.activeCard = null; activeRoom.timerEndsAt = null;
     addLog(`🚫 ${skipped?.name} fue saltado/a.`);
     broadcast();
-    setTimeout(()=>{
-      gs.currentIdx=(skipIdx+gs.direction+gs.players.length)%gs.players.length;
-      gs.skipEffect=null; gs.extraTimeUsed=false;
-      addLog(`Turno de ${gs.players[gs.currentIdx]?.name}.`);
+    setTimeout(() => {
+      if (!activeRoom) return;
+      activeRoom.currentIdx = (skipIdx + activeRoom.direction + activeRoom.players.length) % activeRoom.players.length;
+      activeRoom.skipEffect = null; activeRoom.extraTimeUsed = false;
+      addLog(`Turno de ${activeRoom.players[activeRoom.currentIdx]?.name}.`);
       broadcast();
-    },2500);
+    }, 2500);
   });
 
   socket.on("reverse", () => {
-    const p=gs.players[gs.currentIdx];
-    if(!p||p.id!==socket.id||gs.gameOver) return;
-    gs.direction*=-1; addLog("🔄 Orden invertido."); broadcast();
-  });
-
-  socket.on("reset", () => {
-    clearTimer();
-    const facId=gs.facilitatorId;
-    const oldPlayers=gs.players.map(p=>({...p,cards:7,isFacilitator:p.id===facId}));
-    gs=freshState();
-    gs.players=oldPlayers; gs.facilitatorId=facId;
-    gs.logs=["¡Nuevo juego iniciado! Configura y presiona Iniciar."];
+    if (!activeRoom || activeRoom.gameOver) return;
+    const p = activeRoom.players[activeRoom.currentIdx];
+    if (!p || p.id !== socket.id) return;
+    activeRoom.direction *= -1;
+    addLog("🔄 Orden invertido.");
     broadcast();
   });
 
+  socket.on("reset", () => {
+    if (!activeRoom) return;
+    clearTimer();
+    const code = activeRoom.code;
+    const hostId = activeRoom.hostId;
+    const oldPlayers = activeRoom.players.map(p => ({ ...p, cards: activeRoom.config.cardsPerPlayer, isHost: p.id === hostId }));
+    const config = activeRoom.config;
+    const cards = activeRoom.cards;
+    activeRoom = freshRoom(code, hostId);
+    activeRoom.players = oldPlayers;
+    activeRoom.config = config;
+    activeRoom.cards = cards;
+    activeRoom.logs = ["↺ Nueva retro iniciada. ¡Configura y presiona Iniciar!"];
+    scheduleRoomExpiry();
+    broadcast();
+  });
+
+  socket.on("closeRoom", () => {
+    if (!activeRoom || socket.id !== activeRoom.hostId) return;
+    clearTimer();
+    io.to(activeRoom.code).emit("roomClosed");
+    activeRoom = null;
+    if (roomExpireTimer) clearTimeout(roomExpireTimer);
+  });
+
   socket.on("disconnect", () => {
-    const idx=gs.players.findIndex(p=>p.id===socket.id);
-    if(idx===-1) return;
-    const name=gs.players[idx].name;
-    gs.players.splice(idx,1);
-    if(gs.currentIdx>=gs.players.length) gs.currentIdx=0;
-    if(socket.id===gs.facilitatorId&&gs.players.length>0){
-      gs.facilitatorId=gs.players[0].id; gs.players[0].isFacilitator=true;
-      addLog(`${gs.players[0].name} es el nuevo facilitador/a.`);
+    if (!activeRoom) return;
+    const idx = activeRoom.players.findIndex(p => p.id === socket.id);
+    if (idx === -1) return;
+    const name = activeRoom.players[idx].name;
+    const wasHost = activeRoom.players[idx].isHost;
+    activeRoom.players.splice(idx, 1);
+    if (activeRoom.currentIdx >= activeRoom.players.length) activeRoom.currentIdx = 0;
+    if (wasHost && activeRoom.players.length > 0) {
+      activeRoom.hostId = activeRoom.players[0].id;
+      activeRoom.players[0].isHost = true;
+      addLog(`${activeRoom.players[0].name} es el nuevo host.`);
     }
-    addLog(`${name} salió.`); broadcast();
+    addLog(`${name} salió.`);
+    broadcast();
   });
 });
 
-const PORT=process.env.PORT||3000;
-server.listen(PORT,()=>console.log(`Servidor en puerto ${PORT}`));
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
