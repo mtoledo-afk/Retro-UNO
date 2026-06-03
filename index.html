@@ -278,6 +278,7 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
         <div class="config-grid">
           <div class="config-item"><label>Segundos por turno</label><input class="inp-sm" type="number" id="turn-sec" min="30" max="300" value="90" style="width:100%;" onchange="sendConfig()"/></div>
           <div class="config-item"><label>Cartas por jugador</label><input class="inp-sm" type="number" id="cards-pp" min="3" max="15" value="7" style="width:100%;" onchange="sendConfig()"/></div>
+          <div class="config-item"><label>Duración partida (min, 0=∞)</label><input class="inp-sm" type="number" id="game-dur" min="0" max="120" value="0" style="width:100%;" onchange="sendConfig()"/></div>
         </div>
       </div>
       <div class="panel">
@@ -304,22 +305,24 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
       </div>
       <div class="collapsible-body">
         <div class="instr-grid" style="margin-top:12px;">
-          <div class="icard"><div class="inum" style="color:#10B981;">01</div><div class="ititle">Host configura</div><div class="idesc">Ajusta tiempo por turno, cartas por jugador y nombre del sprint. También puede editar el mazo.</div></div>
-          <div class="icard"><div class="inum" style="color:#7C3AED;">02</div><div class="ititle">Todos se unen</div><div class="idesc">Cada persona entra con el link o código. Mínimo 2 jugadores para iniciar.</div></div>
-          <div class="icard"><div class="inum" style="color:#DC2626;">03</div><div class="ititle">Roba y responde</div><div class="idesc">Solo el jugador activo roba carta y escribe su respuesta en tiempo real para todos.</div></div>
-          <div class="icard"><div class="inum" style="color:#D97706;">04</div><div class="ititle">El equipo reacciona</div><div class="idesc">Los demás pueden reaccionar con 👍 🔥 💡 ❤️ mientras leen la respuesta.</div></div>
-          <div class="icard"><div class="inum" style="color:#2563EB;">05</div><div class="ititle">Turno automático</div><div class="idesc">Al agotarse el tiempo el turno pasa solo. El host puede pausar si se necesita más discusión.</div></div>
-          <div class="icard"><div class="inum" style="color:#FBBF24;">06</div><div class="ititle">¡RETRO UNO!</div><div class="idesc">Cuando a alguien le quede 1 carta ¡griten RETRO UNO! El primero en llegar a 0 gana.</div></div>
+          <div class="icard"><div class="inum" style="color:#10B981;">01</div><div class="ititle">Host configura</div><div class="idesc">Ajusta tiempo por turno, cartas por jugador, duración de partida y nombre del sprint. Edita el mazo de cartas.</div></div>
+          <div class="icard"><div class="inum" style="color:#7C3AED;">02</div><div class="ititle">Todos se unen</div><div class="idesc">Cada persona entra con el link o código. Mínimo 2 jugadores. La sala se cierra al iniciar.</div></div>
+          <div class="icard"><div class="inum" style="color:#DC2626;">03</div><div class="ititle">Roba y responde</div><div class="idesc">El jugador activo roba carta, escribe su respuesta y presiona ✅ Enviar. Responder = -1 carta.</div></div>
+          <div class="icard"><div class="inum" style="color:#D97706;">04</div><div class="ititle">El equipo reacciona</div><div class="idesc">Los demás reaccionan con 👍 🔥 💡 ❤️. Luego el jugador presiona ➡ Pasar turno.</div></div>
+          <div class="icard"><div class="inum" style="color:#2563EB;">05</div><div class="ititle">Cartas Wild</div><div class="idesc">ROBA 2 = siguiente responde 2 seguidas. ROBA 4 = 4 jugadores reciben +1 carta. SALTA = pierde turno. WILD COLOR = el activo elige la siguiente categoría.</div></div>
+          <div class="icard"><div class="inum" style="color:#FBBF24;">06</div><div class="ititle">¡RETRO UNO!</div><div class="idesc">Con 1 carta tienes 10 segundos para gritar ¡RETRO UNO! Si otro te atrapa primero = +2 cartas de penalización.</div></div>
+          <div class="icard"><div class="inum" style="color:#10B981;">07</div><div class="ititle">Cómo ganar</div><div class="idesc">Llega a 0 cartas primero = ganas al instante. Si termina el tiempo o el host finaliza = gana quien tenga menos cartas.</div></div>
+          <div class="icard"><div class="inum" style="color:#DB2777;">08</div><div class="ititle">Pausa y control</div><div class="idesc">El host puede pausar el juego, terminar la partida manualmente, o reiniciar una nueva retro.</div></div>
         </div>
         <div class="st" style="margin-top:.5rem;">Las cartas</div>
         <div class="legend-grid">
-          <div class="lcard" style="background:var(--blue-l);border-color:var(--blue);"><b style="color:var(--blue-d);">🏆 AZUL — Logro</b><span style="color:var(--blue-d);">Algo positivo del sprint.</span></div>
-          <div class="lcard" style="background:var(--red-l);border-color:var(--red);"><b style="color:var(--red-d);">🚧 ROJO — Reto</b><span style="color:var(--red-d);">Problema o blocker del sprint.</span></div>
-          <div class="lcard" style="background:var(--green-l);border-color:var(--green);"><b style="color:var(--green-d);">💡 VERDE — Idea</b><span style="color:var(--green-d);">Experimento o mejora a proponer.</span></div>
-          <div class="lcard" style="background:var(--yellow-l);border-color:var(--yellow);"><b style="color:var(--yellow-d);">✅ AMARILLO — Acción</b><span style="color:var(--yellow-d);">Compromiso concreto con dueño.</span></div>
-          <div class="lcard" style="background:var(--wild-l);border-color:var(--wild);"><b style="color:var(--wild-d);">🌈 WILD — Comodín</b><span style="color:var(--wild-d);">Skip, Reversa, votos y más caos.</span></div>
+          <div class="lcard" style="background:var(--blue-l);border-color:var(--blue);"><b style="color:var(--blue-d);">🏆 AZUL — Logro</b><span style="color:var(--blue-d);">Algo positivo del sprint. Responder = -1 carta.</span></div>
+          <div class="lcard" style="background:var(--red-l);border-color:var(--red);"><b style="color:var(--red-d);">🚧 ROJO — Reto</b><span style="color:var(--red-d);">Problema o blocker. Responder = -1 carta.</span></div>
+          <div class="lcard" style="background:var(--green-l);border-color:var(--green);"><b style="color:var(--green-d);">💡 VERDE — Idea</b><span style="color:var(--green-d);">Experimento o mejora. Responder = -1 carta.</span></div>
+          <div class="lcard" style="background:var(--yellow-l);border-color:var(--yellow);"><b style="color:var(--yellow-d);">✅ AMARILLO — Acción</b><span style="color:var(--yellow-d);">Compromiso concreto. Responder = -1 carta.</span></div>
+          <div class="lcard" style="background:var(--wild-l);border-color:var(--wild);"><b style="color:var(--wild-d);">🌈 WILD — Comodín</b><span style="color:var(--wild-d);">Efectos especiales sobre otros jugadores.</span></div>
         </div>
-        <div class="tip-box" style="margin-top:.5rem;"><strong>Wild rápido:</strong> ROBA 2 = los 2 siguientes comparten blocker · SALTA = usa Skip · REVERSA = usa Reversa · WILD = todos escriben al mismo tiempo · ROBA 4 = 4 mejoras con dueño · VOTO RELÁMPAGO = pulgares arriba/abajo.</div>
+        <div class="tip-box" style="margin-top:.5rem;"><strong>Wild — efectos en cartas:</strong> ROBA 2 = siguiente responde 2 preguntas seguidas · ROBA 4 = los 4 siguientes reciben +1 carta · SALTA = pierde turno · WILD COLOR = elige categoría para el siguiente · REVERSA = invierte orden · RETRO UNO no gritado a tiempo = +2 cartas de penalización.</div>
       </div>
     </div>
   </div>
@@ -333,11 +336,23 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <div class="game-room-code" id="game-room-code">RETRO-????</div>
         <button class="btn btn-pause btn-sm" id="btn-pause" onclick="emit('togglePause')" style="display:none;">⏸ Pausar</button>
+        <button class="btn btn-danger btn-sm" id="btn-endgame" onclick="confirmEndGame()" style="display:none;">🏁 Terminar</button>
       </div>
     </div>
 
     <!-- Pause banner -->
     <div class="pause-banner" id="pause-banner">⏸ JUEGO EN PAUSA — El host pausó para discusión</div>
+    <div class="pause-banner" id="submitted-banner" style="background:#10B981;color:#fff;display:none;">✅ Respuesta enviada — El equipo puede reaccionar. <span id="pass-turn-hint"></span></div>
+    <!-- UNO Alert -->
+    <div id="uno-alert-box" style="display:none;background:#FBBF24;color:#78350F;border-radius:var(--r);padding:12px 18px;margin-bottom:1rem;display:none;animation:pulseBanner 1s infinite alternate;">
+      <div style="font-family:var(--fd);font-size:1.1rem;letter-spacing:2px;margin-bottom:8px;" id="uno-alert-msg">⚡ ¡RETRO UNO!</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;" id="uno-alert-btns"></div>
+    </div>
+    <!-- Wild Color Picker -->
+    <div id="color-picker-box" style="display:none;background:var(--surface);border:2px solid var(--wild);border-radius:var(--r);padding:14px;margin-bottom:1rem;">
+      <div style="font-family:var(--fd);font-size:1rem;letter-spacing:1.5px;margin-bottom:10px;color:var(--muted);">🌈 WILD COLOR — elige la categoría para el siguiente jugador</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;" id="color-picker-btns"></div>
+    </div>
 
     <div class="st">Jugadores</div>
     <div class="players-grid" id="game-players"></div>
@@ -356,7 +371,7 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
     <!-- Controls -->
     <div class="controls">
       <button class="btn btn-red" id="btn-draw" onclick="emit('draw')" disabled>🃏 Robar carta</button>
-      <button class="btn btn-blue" id="btn-next" onclick="emit('next')" disabled>➡ Pasar turno</button>
+      <button class="btn btn-blue" id="btn-next" onclick="emit('next')" disabled>✅ Enviar respuesta</button>
       <button class="btn btn-yellow" id="btn-skip" onclick="emit('skip')" disabled>⏭ Skip</button>
       <button class="btn btn-lime" id="btn-reverse" onclick="emit('reverse')" disabled>🔄 Reversa</button>
       <button class="btn btn-ghost" onclick="emit('reset')" id="btn-reset" style="display:none;">↺ Nueva retro</button>
@@ -587,12 +602,26 @@ function escHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace
 // ── PAUSE ──────────────────────────────────────────────────────────
 function renderPause(s){
   const banner=document.getElementById("pause-banner");
+  const submittedBanner=document.getElementById("submitted-banner");
   const bp=document.getElementById("btn-pause");
-  banner.style.display=s.paused?"block":"none";
+
+  // Submitted-and-waiting state
+  if(s.responseSubmitted && s.activeCard){
+    banner.style.display="none";
+    submittedBanner.style.display="block";
+    const p=s.players[s.currentIdx];
+    const isMyTurn=p&&p.id===myId;
+    document.getElementById("pass-turn-hint").textContent=
+      isMyTurn?"Presiona ✅ Enviar respuesta nuevamente para pasar el turno.":"Esperando que el equipo reaccione...";
+  } else {
+    submittedBanner.style.display="none";
+    banner.style.display=(s.paused&&!s.responseSubmitted)?"block":"none";
+  }
+
   if(bp){
-    bp.textContent=s.paused?"▶️ Reanudar":"⏸ Pausar";
-    bp.className=s.paused?"btn btn-resume btn-sm":"btn btn-pause btn-sm";
-    bp.style.display=isHost&&s.activeCard?"inline-flex":"none";
+    bp.textContent=s.paused&&!s.responseSubmitted?"▶️ Reanudar":"⏸ Pausar";
+    bp.className=s.paused&&!s.responseSubmitted?"btn btn-resume btn-sm":"btn btn-pause btn-sm";
+    bp.style.display=isHost&&s.activeCard&&!s.responseSubmitted?"inline-flex":"none";
   }
 }
 
@@ -607,14 +636,28 @@ function renderLog(s){ const el=document.getElementById("game-log"); el.innerHTM
 
 function updateButtons(s){
   const p=s.players[s.currentIdx];
-  const myTurn=!!(p&&p.id===myId)&&!s.skipEffect&&!s.gameOver&&s.started&&!s.paused;
+  const myTurn=!!(p&&p.id===myId)&&!s.skipEffect&&!s.gameOver&&s.started;
   const hasCard=!!s.activeCard;
+  const submitted=!!s.responseSubmitted;
+
   document.getElementById("btn-draw").disabled=!myTurn||hasCard;
-  document.getElementById("btn-next").disabled=!myTurn||!hasCard;
-  document.getElementById("btn-skip").disabled=!myTurn;
-  document.getElementById("btn-reverse").disabled=!myTurn;
+
+  // Next button: first press = "Enviar respuesta", second press = "Pasar turno"
+  const btnNext=document.getElementById("btn-next");
+  if(submitted && myTurn){
+    btnNext.disabled=false;
+    btnNext.textContent="➡ Pasar turno";
+    btnNext.className="btn btn-green";
+  } else {
+    btnNext.disabled=!myTurn||!hasCard||s.paused;
+    btnNext.textContent="✅ Enviar respuesta";
+    btnNext.className="btn btn-blue";
+  }
+
+  document.getElementById("btn-skip").disabled=!myTurn||submitted;
+  document.getElementById("btn-reverse").disabled=!myTurn||submitted;
   const be=document.getElementById("btn-extra");
-  be.disabled=!myTurn||!hasCard||s.extraTimeUsed||s.paused;
+  be.disabled=!myTurn||!hasCard||s.extraTimeUsed||s.paused||submitted;
   be.textContent=s.extraTimeUsed?"✓ Usado":"⏳ +30 seg";
 }
 
