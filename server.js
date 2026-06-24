@@ -76,6 +76,7 @@ let activeRoom = null;
 const ROOM_TTL_MS = 24 * 60 * 60 * 1000;
 let roomExpireTimer = null;
 let serverTimer = null;
+let reactionTimer = null;
 
 function generateCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -88,7 +89,7 @@ function freshRoom(code, hostId) {
   return {
     code, hostId,
     players: [],
-    currentIdx: 0, direction: 1,
+    currentIdx: 0, direction: 1, directionFlash: false,
     discard: [],
     logs: ["🎮 Sala creada. Comparte el código con tu equipo."],
     activeCard: null,
@@ -97,9 +98,10 @@ function freshRoom(code, hostId) {
     pendingDraw2Count: 0,       // how many left to answer in a row
     currentResponse: "",
     reactions: {},
-    config: { turnSeconds: 90, cardsPerPlayer: 7, sprintName: "Sprint", gameDurationMinutes: 0 },
+    config: { turnSeconds: 90, cardsPerPlayer: 7, sprintName: "Sprint", gameDurationMinutes: 0, reactionSeconds: 15 },
     cards: JSON.parse(JSON.stringify(DEFAULT_CARDS)),
     timerEndsAt: null,
+    reactionTimerEndsAt: null,
     gameDurationEndsAt: null,
     extraTimeUsed: false,
     paused: false,
@@ -130,6 +132,7 @@ function addLog(msg) {
 
 function broadcast() { if (!activeRoom) return; io.to(activeRoom.code).emit("state", activeRoom); }
 function clearTimer() { if (serverTimer) { clearInterval(serverTimer); serverTimer = null; } }
+function clearReactionTimer() { if (reactionTimer) { clearInterval(reactionTimer); reactionTimer = null; } }
 
 function addCards(playerIdx, count) {
   const r = activeRoom;
@@ -161,8 +164,10 @@ function saveResponseToHistory() {
 
 function advanceTurn(reason) {
   clearTimer();
+  clearReactionTimer();
   const r = activeRoom;
   saveResponseToHistory();
+  r.reactionTimerEndsAt = null;
 
   // If pending draw2 (ROBA 2), same player draws again
   if (r.pendingDraw2 && r.pendingDraw2Count > 0) {
@@ -184,6 +189,7 @@ function advanceTurn(reason) {
 
   const next = r.players[r.currentIdx];
   if (reason === "auto") addLog(`⏱ Tiempo agotado — turno de ${next?.name}.`);
+  else if (reason === "reaction-timeout") addLog(`⏱ Tiempo de reacción terminado — turno de ${next?.name}.`);
   else addLog(`Turno de ${next?.name}.`);
   broadcast();
 }
@@ -304,12 +310,13 @@ io.on("connection", socket => {
   });
 
   // ── Config ──
-  socket.on("setConfig", ({ turnSeconds, cardsPerPlayer, sprintName, gameDurationMinutes }) => {
+  socket.on("setConfig", ({ turnSeconds, cardsPerPlayer, sprintName, gameDurationMinutes, reactionSeconds }) => {
     if (!activeRoom || socket.id !== activeRoom.hostId || activeRoom.started) return;
     if (turnSeconds) activeRoom.config.turnSeconds = Math.max(30, Math.min(300, parseInt(turnSeconds) || 90));
     if (cardsPerPlayer) { activeRoom.config.cardsPerPlayer = Math.max(3, Math.min(15, parseInt(cardsPerPlayer) || 7)); activeRoom.players.forEach(p => p.cards = activeRoom.config.cardsPerPlayer); }
     if (sprintName) activeRoom.config.sprintName = sprintName.trim() || "Sprint";
     if (gameDurationMinutes !== undefined) activeRoom.config.gameDurationMinutes = Math.max(0, parseInt(gameDurationMinutes) || 0);
+    if (reactionSeconds) activeRoom.config.reactionSeconds = Math.max(5, Math.min(60, parseInt(reactionSeconds) || 15));
     broadcast();
   });
 
@@ -394,6 +401,7 @@ io.on("connection", socket => {
   // ── Reactions ──
   socket.on("react", ({ emoji }) => {
     if (!activeRoom || !activeRoom.activeCard || !REACTIONS.includes(emoji)) return;
+    if (!activeRoom.responseSubmitted) return; // only allowed after response is submitted
     const p = activeRoom.players[activeRoom.currentIdx];
     if (p && p.id === socket.id) return;
     if (activeRoom.reactions[emoji] === undefined) activeRoom.reactions[emoji] = 0;
@@ -408,7 +416,7 @@ io.on("connection", socket => {
     if (!p || p.id !== socket.id) return;
 
     if (activeRoom.activeCard && !activeRoom.responseSubmitted) {
-      // STEP 1: submit response — freeze timer, allow reactions
+      // STEP 1: submit response — freeze main timer, start reaction window
       clearTimer();
       activeRoom.responseSubmitted = true;
       activeRoom.paused = true;
@@ -433,9 +441,34 @@ io.on("connection", socket => {
           broadcast();
         }, 10000);
       }
-      if (!checkGameOver()) broadcast();
+      if (!checkGameOver()) {
+        // Start reaction window — auto-advance turn when it ends
+        clearReactionTimer();
+        activeRoom.reactionTimerEndsAt = Date.now() + activeRoom.config.reactionSeconds * 1000;
+        broadcast();
+        reactionTimer = setInterval(() => {
+          if (!activeRoom || !activeRoom.reactionTimerEndsAt) { clearReactionTimer(); return; }
+          if (Date.now() >= activeRoom.reactionTimerEndsAt) {
+            clearReactionTimer();
+            activeRoom.reactionTimerEndsAt = null;
+            activeRoom.responseSubmitted = false;
+            activeRoom.paused = false;
+            activeRoom.unoAlert = null;
+            if (activeRoom.nextPlayerDraw2) {
+              activeRoom.nextPlayerDraw2 = false;
+              activeRoom.pendingDraw2 = true;
+              activeRoom.pendingDraw2Count = 1;
+            }
+            advanceTurn("reaction-timeout");
+          }
+        }, 500);
+      } else {
+        broadcast();
+      }
     } else {
-      // STEP 2: actually advance turn
+      // STEP 2: manual pass (e.g. if host/player wants to skip the wait) — actually advance turn
+      clearReactionTimer();
+      activeRoom.reactionTimerEndsAt = null;
       activeRoom.responseSubmitted = false;
       activeRoom.paused = false;
       activeRoom.unoAlert = null;
@@ -516,11 +549,12 @@ io.on("connection", socket => {
     endGameByCards("el host terminó el juego");
   });
 
-  // ── Skip ──
+  // ── Skip — only valid when active card is SALTA ──
   socket.on("skip", () => {
     if (!activeRoom || activeRoom.gameOver || activeRoom.paused) return;
     const p = activeRoom.players[activeRoom.currentIdx];
     if (!p || p.id !== socket.id) return;
+    if (!activeRoom.activeCard || !activeRoom.activeCard.question.startsWith("SALTA")) return;
     clearTimer();
     const skipIdx = (activeRoom.currentIdx + activeRoom.direction + activeRoom.players.length) % activeRoom.players.length;
     const skipped = activeRoom.players[skipIdx];
@@ -538,14 +572,17 @@ io.on("connection", socket => {
     }, 2500);
   });
 
-  // ── Reverse ──
+  // ── Reverse — only valid when active card is REVERSA ──
   socket.on("reverse", () => {
     if (!activeRoom || activeRoom.gameOver) return;
     const p = activeRoom.players[activeRoom.currentIdx];
     if (!p || p.id !== socket.id) return;
+    if (!activeRoom.activeCard || !activeRoom.activeCard.question.startsWith("REVERSA")) return;
     activeRoom.direction *= -1;
+    activeRoom.directionFlash = true;
     addLog("🔄 Orden invertido.");
     broadcast();
+    setTimeout(() => { if (activeRoom) { activeRoom.directionFlash = false; broadcast(); } }, 1200);
   });
 
   // ── Reset ──
