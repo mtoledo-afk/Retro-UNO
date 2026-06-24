@@ -620,7 +620,10 @@ io.on("connection", socket => {
 });
 
 // ── Admin endpoints (manual recovery if a room gets stuck) ─────────────
+const ADMIN_KEY = "Chester";
+
 app.get("/admin/status", (req, res) => {
+  if (req.query.key !== ADMIN_KEY) return res.status(403).send("❌ Clave incorrecta.");
   res.json({
     hasRoom: !!activeRoom,
     code: activeRoom?.code || null,
@@ -631,6 +634,7 @@ app.get("/admin/status", (req, res) => {
 });
 
 app.get("/admin/reset", (req, res) => {
+  if (req.query.key !== ADMIN_KEY) return res.status(403).send("❌ Clave incorrecta.");
   if (activeRoom) {
     clearTimer();
     clearReactionTimer();
