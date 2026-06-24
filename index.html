@@ -218,9 +218,9 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 .skip-nm{font-size:.85rem;opacity:.85;text-align:center;padding:0 8px;}
 
 /* UNO TOAST */
-.uno-toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(0);background:#FBBF24;color:#78350F;font-family:var(--fd);font-size:clamp(2rem,10vw,5rem);letter-spacing:6px;padding:14px 36px;border-radius:18px;z-index:899;pointer-events:none;}
-.uno-toast.show{animation:unoIn 2s ease forwards;}
-@keyframes unoIn{0%{transform:translate(-50%,-50%) scale(0) rotate(-10deg);opacity:1}25%{transform:translate(-50%,-50%) scale(1.05) rotate(2deg)}40%{transform:translate(-50%,-50%) scale(1)}75%{opacity:1}100%{transform:translate(-50%,-50%) scale(.8);opacity:0}}
+.uno-toast{position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-120px) scale(.9);background:#FBBF24;color:#78350F;font-family:var(--fd);font-size:clamp(1.4rem,5vw,2.2rem);letter-spacing:3px;padding:10px 24px;border-radius:14px;z-index:899;pointer-events:none;box-shadow:0 10px 30px rgba(0,0,0,.35);}
+.uno-toast.show{animation:unoInTop 2.2s ease forwards;}
+@keyframes unoInTop{0%{transform:translateX(-50%) translateY(-120px) scale(.9);opacity:0}15%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}80%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}100%{transform:translateX(-50%) translateY(-120px) scale(.9);opacity:0}}
 
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 @media(max-width:600px){.inicio-cards{grid-template-columns:1fr}.controls{gap:6px}.btn{font-size:.82rem;padding:8px 10px}}
@@ -308,7 +308,7 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
           <div class="icard"><div class="inum" style="color:#10B981;">01</div><div class="ititle">Host configura</div><div class="idesc">Ajusta tiempo por turno, cartas por jugador, duración de partida y nombre del sprint. Edita el mazo de cartas.</div></div>
           <div class="icard"><div class="inum" style="color:#7C3AED;">02</div><div class="ititle">Todos se unen</div><div class="idesc">Cada persona entra con el link o código. Mínimo 2 jugadores. La sala se cierra al iniciar.</div></div>
           <div class="icard"><div class="inum" style="color:#DC2626;">03</div><div class="ititle">Roba y responde</div><div class="idesc">El jugador activo roba carta, escribe su respuesta y presiona ✅ Enviar. Responder = -1 carta.</div></div>
-          <div class="icard"><div class="inum" style="color:#D97706;">04</div><div class="ititle">El equipo reacciona</div><div class="idesc">Los demás reaccionan con 👍 🔥 💡 ❤️. Luego el jugador presiona ➡ Pasar turno.</div></div>
+          <div class="icard"><div class="inum" style="color:#D97706;">04</div><div class="ititle">El equipo reacciona</div><div class="idesc">Los demás reaccionan con 👍 👎 🔥 💡 ❤️. Luego el jugador presiona ➡ Pasar turno.</div></div>
           <div class="icard"><div class="inum" style="color:#2563EB;">05</div><div class="ititle">Cartas Wild</div><div class="idesc">ROBA 2 = siguiente responde 2 seguidas. ROBA 4 = 4 jugadores reciben +1 carta. SALTA = pierde turno. WILD COLOR = el activo elige la siguiente categoría.</div></div>
           <div class="icard"><div class="inum" style="color:#FBBF24;">06</div><div class="ititle">¡RETRO UNO!</div><div class="idesc">Con 1 carta tienes 10 segundos para gritar ¡RETRO UNO! Si otro te atrapa primero = +2 cartas de penalización.</div></div>
           <div class="icard"><div class="inum" style="color:#10B981;">07</div><div class="ititle">Cómo ganar</div><div class="idesc">Llega a 0 cartas primero = ganas al instante. Si termina el tiempo o el host finaliza = gana quien tenga menos cartas.</div></div>
@@ -428,6 +428,7 @@ const REACTIONS_LIST = ["👍","👎","🔥","💡","❤️"];
 
 const socket = io(SERVER_URL, { transports:["websocket"] });
 let myId=null, state=null, timerRAF=null, skipShown=false, winnerShown=false;
+let unoToastShownFor=null; // tracks which unoAlert already triggered the toast (avoid re-firing every render)
 let myName="", roomCode="", isHost=false;
 
 const PALETTE=[
@@ -584,7 +585,12 @@ function renderCard(s){
     <div class="cq">${c.question}</div>
     ${c.tip?`<div class="ctip">💬 ${c.tip}</div>`:""}
   </div>`;
-  if(s.players.some(p=>p.cards===1)){const t2=document.getElementById("uno-toast");t2.classList.remove("show");void t2.offsetWidth;t2.classList.add("show");}
+  if(s.unoAlert && unoToastShownFor!==s.unoAlert.playerId+"-"+s.unoAlert.calledUno){
+    unoToastShownFor=s.unoAlert.playerId+"-"+s.unoAlert.calledUno;
+    const t2=document.getElementById("uno-toast");
+    t2.classList.remove("show"); void t2.offsetWidth; t2.classList.add("show");
+  }
+  if(!s.unoAlert) unoToastShownFor=null;
 }
 
 // ── RESPONSE + REACTIONS ───────────────────────────────────────────
