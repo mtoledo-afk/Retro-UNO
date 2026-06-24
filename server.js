@@ -619,5 +619,27 @@ io.on("connection", socket => {
   });
 });
 
+// ── Admin endpoints (manual recovery if a room gets stuck) ─────────────
+app.get("/admin/status", (req, res) => {
+  res.json({
+    hasRoom: !!activeRoom,
+    code: activeRoom?.code || null,
+    players: activeRoom?.players?.length || 0,
+    started: activeRoom?.started || false,
+    createdAt: activeRoom?.createdAt || null,
+  });
+});
+
+app.get("/admin/reset", (req, res) => {
+  if (activeRoom) {
+    clearTimer();
+    clearReactionTimer();
+    io.to(activeRoom.code).emit("roomClosed");
+  }
+  activeRoom = null;
+  if (roomExpireTimer) clearTimeout(roomExpireTimer);
+  res.send("✅ Sala fantasma eliminada. Ya puedes crear una sala nueva.");
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));
