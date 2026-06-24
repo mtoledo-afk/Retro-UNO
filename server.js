@@ -69,7 +69,7 @@ const DEFAULT_CARDS = [
   ]},
 ];
 
-const REACTIONS = ["👍","🔥","💡","❤️"];
+const REACTIONS = ["👍","👎","🔥","💡","❤️"];
 const COLORS = ["#2563EB","#DC2626","#16A34A","#D97706","#7C3AED","#DB2777","#0891B2","#65A30D","#E85D04","#3B82F6","#10B981","#F59E0B"];
 
 let activeRoom = null;
@@ -110,6 +110,7 @@ function freshRoom(code, hostId) {
     unoAlert: null,             // { playerId, playerName } — waiting for UNO shout
     drawnHistory: [],
     totalCards: 0, drawnCount: 0,
+    questionUsageCount: {},   // { question: timesDrawn } max 2 per session
     createdAt: Date.now(),
   };
 }
@@ -218,15 +219,55 @@ function checkGameOver() {
   return false;
 }
 
-function allQuestions(forcedColor) {
+function pickNextCard(forcedColor) {
   const cards = activeRoom.cards;
+  const usage = activeRoom.questionUsageCount;
+  const MAX_USES = 2;
+  const lastQuestion = activeRoom.discard.length ? activeRoom.discard[activeRoom.discard.length - 1].question : null;
+
+  function questionsFor(cat) {
+    return cat.questions.map(q => ({ color: cat.color, label: cat.label, tip: cat.tip || "", question: q }));
+  }
+
+  function freshFilter(list) {
+    let fresh = list.filter(q => (usage[q.question] || 0) < MAX_USES && q.question !== lastQuestion);
+    if (fresh.length > 0) return fresh;
+    fresh = list.filter(q => (usage[q.question] || 0) < MAX_USES);
+    if (fresh.length > 0) return fresh;
+    return list.filter(q => q.question !== lastQuestion).length ? list.filter(q => q.question !== lastQuestion) : list;
+  }
+
+  // Forced color (Wild Color) — pick fresh question from that category only
   if (forcedColor) {
     const cat = cards.find(c => c.color === forcedColor);
     if (cat && cat.questions.length) {
-      return cat.questions.map(q => ({ color: cat.color, label: cat.label, tip: cat.tip || "", question: q }));
+      const candidates = freshFilter(questionsFor(cat));
+      return candidates[Math.floor(Math.random() * candidates.length)];
     }
   }
-  return cards.flatMap(d => d.questions.map(q => ({ color: d.color, label: d.label, tip: d.tip || "", question: q })));
+
+  // Balanced category pick: choose a category uniformly at random first,
+  // then a fresh question within it — so every color (5 cats) gets ~20% regardless of question count.
+  const categoriesWithOptions = cards.filter(c => c.questions.length > 0);
+  if (categoriesWithOptions.length === 0) return null;
+
+  // Try up to N times to find a category with at least one non-exhausted question
+  let attempts = 0;
+  let chosenCat, candidates;
+  do {
+    chosenCat = categoriesWithOptions[Math.floor(Math.random() * categoriesWithOptions.length)];
+    candidates = freshFilter(questionsFor(chosenCat));
+    attempts++;
+  } while (candidates.length === 0 && attempts < 20);
+
+  if (candidates.length === 0) {
+    // Full reset — every category exhausted
+    activeRoom.questionUsageCount = {};
+    addLog("🔄 Todas las preguntas se han usado — reiniciando el mazo.");
+    candidates = questionsFor(chosenCat);
+  }
+
+  return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 // ── Socket.io ─────────────────────────────────────────────────────────
@@ -304,8 +345,8 @@ io.on("connection", socket => {
     const p = activeRoom.players[activeRoom.currentIdx];
     if (!p || p.id !== socket.id) return;
 
-    const pool = allQuestions(activeRoom.forcedColor);
-    const card = pool[Math.floor(Math.random() * pool.length)];
+    const card = pickNextCard(activeRoom.forcedColor);
+    if (!card) return;
     activeRoom.forcedColor = null; // consume forced color
 
     activeRoom.activeCard = { ...card, playerName: p.name };
@@ -314,6 +355,9 @@ io.on("connection", socket => {
     activeRoom.drawnHistory.push({ ...card, playerName: p.name, response: "", reactions: {}, timestamp: new Date().toLocaleString("es-GT") });
     activeRoom.currentResponse = ""; activeRoom.reactions = {};
     REACTIONS.forEach(r => activeRoom.reactions[r] = 0);
+
+    // Track question usage
+    activeRoom.questionUsageCount[card.question] = (activeRoom.questionUsageCount[card.question] || 0) + 1;
 
     addLog(`${p.name} robó carta ${card.label}.`);
 

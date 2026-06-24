@@ -344,7 +344,7 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
     <div class="pause-banner" id="pause-banner">⏸ JUEGO EN PAUSA — El host pausó para discusión</div>
     <div class="pause-banner" id="submitted-banner" style="background:#10B981;color:#fff;display:none;">✅ Respuesta enviada — El equipo puede reaccionar. <span id="pass-turn-hint"></span></div>
     <!-- UNO Alert -->
-    <div id="uno-alert-box" style="display:none;background:#FBBF24;color:#78350F;border-radius:var(--r);padding:12px 18px;margin-bottom:1rem;display:none;animation:pulseBanner 1s infinite alternate;">
+    <div id="uno-alert-box" style="display:none;background:#FBBF24;color:#78350F;border-radius:var(--r);padding:12px 18px;margin-bottom:1rem;animation:pulseBanner 1s infinite alternate;">
       <div style="font-family:var(--fd);font-size:1.1rem;letter-spacing:2px;margin-bottom:8px;" id="uno-alert-msg">⚡ ¡RETRO UNO!</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;" id="uno-alert-btns"></div>
     </div>
@@ -423,8 +423,8 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 </div>
 
 <script>
-const SERVER_URL = "https://retro-uno.onrender.com";
-const REACTIONS_LIST = ["👍","🔥","💡","❤️"];
+const SERVER_URL = "https://TU-SERVIDOR.onrender.com";
+const REACTIONS_LIST = ["👍","👎","🔥","💡","❤️"];
 
 const socket = io(SERVER_URL, { transports:["websocket"] });
 let myId=null, state=null, timerRAF=null, skipShown=false, winnerShown=false;
@@ -515,8 +515,47 @@ function renderGame(s){
   renderGamePlayers(s); renderCard(s); renderResponse(s);
   renderDiscard(s); renderLog(s); updateButtons(s);
   renderTimer(s); renderSkip(s); renderPause(s);
+  renderUnoAlert(s); renderColorPicker(s);
   const br=document.getElementById("btn-reset"); if(br) br.style.display=isHost?"inline-flex":"none";
-  const bp=document.getElementById("btn-pause"); if(bp) bp.style.display=isHost&&s.activeCard?"inline-flex":"none";
+  const bp=document.getElementById("btn-pause"); if(bp) bp.style.display=isHost&&s.activeCard&&!s.responseSubmitted?"inline-flex":"none";
+  const be=document.getElementById("btn-endgame"); if(be) be.style.display=isHost&&s.started&&!s.gameOver?"inline-flex":"none";
+}
+
+function renderUnoAlert(s){
+  const box=document.getElementById("uno-alert-box");
+  if(!box) return;
+  if(!s.unoAlert||s.gameOver){box.style.display="none";return;}
+  box.style.display="block";
+  const msg=document.getElementById("uno-alert-msg");
+  const btns=document.getElementById("uno-alert-btns");
+  const isTarget=s.unoAlert.playerId===myId;
+  if(isTarget){
+    msg.textContent="⚡ ¡Tienes 1 carta! Grita RETRO UNO antes de que te atrapen.";
+    btns.innerHTML=`<button class="btn btn-red" onclick="emit('callUno',{targetId:'${s.unoAlert.playerId}'})">🗣 ¡RETRO UNO! (Yo)</button>`;
+  } else {
+    msg.textContent=`⚡ ¡${s.unoAlert.playerName} tiene 1 carta! ¿Lo atrapas?`;
+    btns.innerHTML=`<button class="btn btn-red" onclick="emit('callUno',{targetId:'${s.unoAlert.playerId}'})">🫵 ¡Atrapar a ${s.unoAlert.playerName}! (+2 cartas)</button>`;
+  }
+}
+
+function renderColorPicker(s){
+  const box=document.getElementById("color-picker-box");
+  if(!box) return;
+  if(!s.activeCard||!s.responseSubmitted||s.gameOver){box.style.display="none";return;}
+  const p=s.players[s.currentIdx];
+  const isMyTurn=p&&p.id===myId;
+  const isWildColor=s.activeCard?.question?.startsWith("WILD COLOR");
+  if(!isMyTurn||!isWildColor||s.forcedColor){box.style.display="none";return;}
+  box.style.display="block";
+  const cats=s.cards||[];
+  document.getElementById("color-picker-btns").innerHTML=cats.map(c=>{
+    const t=THEME[c.color]||{bg:"var(--surface2)",border:"var(--border)",text:"var(--muted)"};
+    return`<button class="btn btn-sm" style="background:${t.bg};color:${t.text};border:2px solid ${t.border};" onclick="emit('setForcedColor',{color:'${c.color}'})">${ICON[c.color]||"🃏"} ${c.label}</button>`;
+  }).join("");
+}
+
+function confirmEndGame(){
+  if(confirm("¿Terminar el juego ahora? Ganará el jugador con menos cartas.")) emit("endGame");
 }
 
 function renderGamePlayers(s){
