@@ -659,31 +659,41 @@ function renderResponse(s){
     inputWrap.style.display="none";
     displayWrap.style.display="block";
     const live=document.getElementById("response-live");
-    if(s.currentResponse){
-      live.classList.remove("empty");
-      live.innerHTML=escHtml(s.currentResponse)+'<span class="response-cursor"></span>';
-    } else {
-      live.classList.add("empty");
-      live.innerHTML='Esperando respuesta<span class="response-cursor"></span>';
+    const newText = s.currentResponse || "";
+    if(live.dataset.lastText !== newText){
+      live.dataset.lastText = newText;
+      if(newText){
+        live.classList.remove("empty");
+        live.innerHTML=escHtml(newText)+'<span class="response-cursor"></span>';
+      } else {
+        live.classList.add("empty");
+        live.innerHTML='Esperando respuesta<span class="response-cursor"></span>';
+      }
     }
   }
 
   // Reactions — only enabled after the response has been submitted
   const reactions=s.reactions||{};
   const canReact=!isMyTurn&&!!s.responseSubmitted;
-  const reactLabel = s.responseSubmitted
-    ? '<span class="reactions-label">Reacciona:</span>'
-    : '<span class="reactions-label" style="opacity:.5;">Reacciona (disponible tras enviar):</span>';
-  reactRow.innerHTML=reactLabel+
-    REACTIONS_LIST.map(emoji=>`
-      <button class="reaction-btn${(reactions[emoji]||0)>0?" reacted":""}" onclick="emit('react',{emoji:'${emoji}'})" ${!canReact?"disabled":""}>
-        ${emoji} <span class="reaction-count">${reactions[emoji]||0}</span>
-      </button>`).join("");
+  const fingerprint = JSON.stringify({reactions, canReact, submitted:!!s.responseSubmitted});
+  if(reactRow.dataset.fp !== fingerprint){
+    reactRow.dataset.fp = fingerprint;
+    const reactLabel = s.responseSubmitted
+      ? '<span class="reactions-label">Reacciona:</span>'
+      : '<span class="reactions-label" style="opacity:.5;">Reacciona (disponible tras enviar):</span>';
+    reactRow.innerHTML=reactLabel+
+      REACTIONS_LIST.map(emoji=>`
+        <button class="reaction-btn${(reactions[emoji]||0)>0?" reacted":""}" onclick="emit('react',{emoji:'${emoji}'})" ${!canReact?"disabled":""}>
+          ${emoji} <span class="reaction-count">${reactions[emoji]||0}</span>
+        </button>`).join("");
+  }
 }
 
+let typeDebounceTimer=null;
 function onTypeResponse(val){
   document.getElementById("char-count").textContent=`${val.length} / 300`;
-  emit("typeResponse",{text:val});
+  clearTimeout(typeDebounceTimer);
+  typeDebounceTimer=setTimeout(()=>{ emit("typeResponse",{text:val}); }, 180);
 }
 
 function escHtml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>"); }
