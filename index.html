@@ -352,7 +352,6 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
 
     <!-- Pause banner -->
     <div class="pause-banner" id="pause-banner">⏸ JUEGO EN PAUSA — El host pausó para discusión</div>
-    <div class="pause-banner" id="submitted-banner" style="background:#10B981;color:#fff;display:none;">✅ Respuesta enviada — reaccionen <span id="reaction-countdown" style="font-weight:800;"></span>s · <span id="pass-turn-hint"></span></div>
     <!-- UNO Alert -->
     <div id="uno-alert-box" style="display:none;background:#FBBF24;color:#78350F;border-radius:var(--r);padding:12px 18px;margin-bottom:1rem;animation:pulseBanner 1s infinite alternate;">
       <div style="font-family:var(--fd);font-size:1.1rem;letter-spacing:2px;margin-bottom:8px;" id="uno-alert-msg">⚡ ¡RETRO UNO!</div>
@@ -402,6 +401,8 @@ body{font-family:var(--fb);background:var(--bg);color:var(--text);min-height:100
       <div id="response-display-wrap" style="display:none;">
         <div class="response-live empty" id="response-live">Esperando respuesta<span class="response-cursor"></span></div>
       </div>
+      <!-- Submitted + reaction countdown banner -->
+      <div class="pause-banner" id="submitted-banner" style="background:#10B981;color:#fff;display:none;margin-top:10px;margin-bottom:10px;">✅ Respuesta enviada — reaccionen <span id="reaction-countdown" style="font-weight:800;"></span>s · <span id="pass-turn-hint"></span></div>
       <!-- Reactions -->
       <div class="reactions-row" id="reactions-row">
         <span class="reactions-label">Reacciona:</span>
@@ -618,14 +619,24 @@ function renderDirectionIndicator(s){
 
 function renderCard(s){
   const el=document.getElementById("card-wrap");
-  if(!s.activeCard){el.innerHTML='<div class="placeholder">'+(s.started?'Es tu turno — roba una carta ✨':'Esperando...')+'</div>';return;}
+  if(!s.activeCard){
+    if(el.dataset.fp!=="empty"){
+      el.dataset.fp="empty";
+      el.innerHTML='<div class="placeholder">'+(s.started?'Es tu turno — roba una carta ✨':'Esperando...')+'</div>';
+    }
+    return;
+  }
   const c=s.activeCard,t=THEME[c.color]||THEME.wild;
-  el.innerHTML=`<div class="active-card" style="background:${t.bg};border-color:${t.border};color:${t.text};">
-    <div class="cbadge">${ICON[c.color]||"🃏"} Carta ${c.label}</div>
-    <div class="cwho">${c.playerName}</div>
-    <div class="cq">${c.question}</div>
-    ${c.tip?`<div class="ctip">💬 ${c.tip}</div>`:""}
-  </div>`;
+  const fp = c.color+"|"+c.label+"|"+c.question+"|"+c.playerName;
+  if(el.dataset.fp!==fp){
+    el.dataset.fp=fp;
+    el.innerHTML=`<div class="active-card" style="background:${t.bg};border-color:${t.border};color:${t.text};">
+      <div class="cbadge">${ICON[c.color]||"🃏"} Carta ${c.label}</div>
+      <div class="cwho">${c.playerName}</div>
+      <div class="cq">${c.question}</div>
+      ${c.tip?`<div class="ctip">💬 ${c.tip}</div>`:""}
+    </div>`;
+  }
   if(s.unoAlert && unoToastShownFor!==s.unoAlert.playerId+"-"+s.unoAlert.calledUno){
     unoToastShownFor=s.unoAlert.playerId+"-"+s.unoAlert.calledUno;
     const t2=document.getElementById("uno-toast");
